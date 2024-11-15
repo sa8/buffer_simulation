@@ -7,7 +7,7 @@ from math import ceil
 ALPHA = 2
 BOND = 4
 INITIAL_STAKE = 10000
-INITIAL_BUFFER = 2000
+INITIAL_BUFFER = 1000
 TARGET = INITIAL_BUFFER
 SIMULATION_DAYS = 10000
 DAILY_ACTIONS = 24  # Simulate hourly actions
@@ -65,22 +65,51 @@ class BufferSystem:
         # check if we are above a threshold (we need 32 eth + target before staking)
         # if self.buffer > TARGET + 32:
         #     self.stake()
-
     def withdraw(self, amount):
-        if amount < self.total_amount: # stop withdrawal if not enough stake
-            health = self.buffer_health(self.buffer - amount)
-            if health > healthy_buffer:
-                actual_withdrawal = min(amount, self.buffer)  # Ensure we don't withdraw more than available
-            else:
-                actual_withdrawal = min(amount * (0.2 + health), self.buffer)
-            if amount > self.buffer: # not enough in buffer to fulfil the withdrawal, the request is queued
-                self.enqueued_requests += amount - actual_withdrawal
-                #print("queued requests")
-            self.buffer -= actual_withdrawal
-            self.total_amount -= actual_withdrawal
-            return actual_withdrawal
-        else:
-            return 0 # nothing was withdraw
+            if amount <= self.total_amount:  # Check if we have enough total funds
+                current_health = self.buffer_health(self.buffer)
+                
+                # Calculate maximum withdrawal based on health
+                if current_health > healthy_buffer:
+                    max_withdrawal = self.buffer
+                else:
+                    # Apply slippage when health is low
+                    slippage_factor = 0.2 + current_health
+                    max_withdrawal = min(amount * slippage_factor, self.buffer)
+                
+                # If requested amount exceeds what we can fulfill
+                if amount > max_withdrawal:
+                    # Queue the unfulfilled portion
+                    unfulfilled = amount - max_withdrawal
+                    self.enqueued_requests += unfulfilled
+                    
+                    # Process the withdrawal we can fulfill
+                    self.buffer -= max_withdrawal
+                    self.total_amount -= max_withdrawal
+                    return max_withdrawal
+                else:
+                    # Can fulfill entire request
+                    self.buffer -= amount
+                    self.total_amount -= amount
+                    return amount
+                    
+            return 0  # Return 0 if we don't have enough total funds
+
+    # def withdraw(self, amount):
+    #     if amount < self.total_amount: # stop withdrawal if not enough stake
+    #         health = self.buffer_health(self.buffer - amount)
+    #         if health > healthy_buffer:
+    #             actual_withdrawal = min(amount, self.buffer)  # Ensure we don't withdraw more than available
+    #         else:
+    #             actual_withdrawal = min(amount * (0.2 + health), self.buffer)
+    #         if amount > self.buffer: # not enough in buffer to fulfil the withdrawal, the request is queued
+    #             self.enqueued_requests += amount - actual_withdrawal
+    #             #print("queued requests")
+    #         self.buffer -= actual_withdrawal
+    #         self.total_amount -= actual_withdrawal
+    #         return actual_withdrawal
+    #     else:
+    #         return 0 # nothing was withdraw
 
     def update_target(self):
         avg_health = np.mean(self.health_history[-24:]) if len(self.health_history) >= 24 else np.mean(self.health_history)
