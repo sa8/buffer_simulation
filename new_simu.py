@@ -7,13 +7,13 @@ from math import ceil
 ALPHA = 2
 BOND = 4
 INITIAL_STAKE = 10000
-INITIAL_BUFFER = 1000
+INITIAL_BUFFER = 5
 TARGET = INITIAL_BUFFER
 SIMULATION_DAYS = 10000
 DAILY_ACTIONS = 24  # Simulate hourly actions
 healthy_buffer = 0.8
 linear_health_function = 0
-normal_percentile = 0.1 # we want the buffer to keep within +/- 0.1 of the buffer
+normal_percentile = 0.5 # we want the buffer to keep within +/- 0.1 of the buffer
 
 class BufferSystem:
     def __init__(self, initial_buffer, initial_target, initial_stake, alpha):
@@ -36,7 +36,6 @@ class BufferSystem:
     def get_enqueued_requests(self):
         return self.enqueued_requests
     
-            
     def record_buffer(self):
         self.buffer_history.append(self.buffer)
     def buffer_health(self, buffer_amount):
@@ -62,7 +61,7 @@ class BufferSystem:
     def deposit(self, amount):
       # when a new deposit is made, should this go to the buffer
       # or to the staked amount?
-      # we put it in the buffer for now
+      # this depends on the value of the buffer
         self.total_amount += amount
         if self.buffer + amount > (1+ normal_percentile) * self.target:
             self.trigger_stake(amount)
@@ -76,21 +75,47 @@ class BufferSystem:
             self.buffer = (1+ normal_percentile) * self.target
             #return staked_amount
        # return 0
+
     def withdraw(self, amount):
-        if amount < self.total_amount: # stop withdrawal if not enough stake
-            health = self.buffer_health(self.buffer - amount)
+        if amount <= self.total_amount:  # stop withdrawal if not enough total stake
+            health = self.buffer_health(self.buffer)  # Check current buffer health
+            
             if health > healthy_buffer:
-                actual_withdrawal = min(amount, self.buffer)  # Ensure we don't withdraw more than available
+                max_withdrawal = self.buffer  # Maximum we can withdraw from buffer
+                if amount <= max_withdrawal:
+                    # Can fulfill completely from buffer
+                    self.buffer -= amount
+                    self.total_amount -= amount
+                    return amount
+                else:
+                    # Can only partially fulfill from buffer
+                    fulfilled = max_withdrawal
+                    remaining = amount - fulfilled
+                    self.enqueued_requests += remaining  # Queue the remainder
+                    self.buffer = 0  # Buffer is emptied
+                    self.total_amount -= fulfilled
+                    return fulfilled
             else:
-                actual_withdrawal = min(amount * (0.2 + health), self.buffer)
-            if amount > self.buffer: # not enough in buffer to fulfil the withdrawal, the request is queued
-                self.enqueued_requests += amount - actual_withdrawal
-                #print("queued requests")
-            self.buffer -= actual_withdrawal
-            self.total_amount -= actual_withdrawal
-            return actual_withdrawal
-        else:
-            return 0 # nothing was withdraw
+                # Apply slippage to requested amount
+                slipped_amount = amount * (0.2 + health)
+                max_withdrawal = self.buffer
+                
+                if slipped_amount <= max_withdrawal:
+                    # Can fulfill slipped amount from buffer
+                    self.buffer -= slipped_amount
+                    self.total_amount -= slipped_amount
+                    return slipped_amount
+                else:
+                    # Can only partially fulfill slipped amount
+                    fulfilled = max_withdrawal
+                    remaining = slipped_amount - fulfilled
+                    self.enqueued_requests += remaining  # Queue the remainder
+                    self.buffer = 0  # Buffer is emptied
+                    self.total_amount -= fulfilled
+                    return fulfilled
+        return 0  # Nothing was withdrawn if total amount insufficient
+
+
 
     def update_target(self):
         #avg_health = np.mean(self.health_history[-24:]) if len(self.health_history) >= 24 else np.mean(self.health_history)
@@ -198,6 +223,7 @@ def analyze_alpha_range(alpha_range):
         buffer_system = BufferSystem(INITIAL_BUFFER, TARGET, INITIAL_STAKE, alpha)
         buffer_history, target_history, withdrawal_history, deposit_history, stake_history, unstake_history, total_amount_history, total_enqueued = run_simulation(buffer_system)
 
+        
         withdrawals = sum(withdrawal_history)
         queued_withdrawals = total_enqueued
         avg_buffer = np.mean(buffer_history)
