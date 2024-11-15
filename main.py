@@ -95,6 +95,43 @@ class BufferSystem:
                     
             return 0  # Return 0 if we don't have enough total funds
 
+    def update_target(self):
+        # Get average health over last 24 periods (or all if less than 24)
+        lookback = min(24, len(self.health_history))
+        if lookback == 0:
+            return self.target
+            
+        recent_health = self.health_history[-lookback:]
+        avg_health = np.mean(recent_health)
+        
+        if avg_health < 1:
+            # Buffer is consistently below target - increase target proportionally
+            # The lower the health, the larger the increase
+            increase_factor = 1 + (1 - avg_health)
+            self.target *= increase_factor
+        elif avg_health > 1:
+            # Buffer is consistently above target - decrease target
+            # The higher the health, the larger the decrease
+            decrease_factor = 1 / avg_health
+            self.target *= decrease_factor
+            
+        # Additional constraints
+        # 1. Target shouldn't exceed total funds
+        self.target = min(self.target, self.total_amount)
+        
+        # 2. Target shouldn't fall below minimum safety threshold
+        min_target = INITIAL_BUFFER * 0.5  # Example minimum threshold
+        self.target = max(self.target, min_target)
+        
+        # 3. Smooth large changes (optional)
+        max_change = 0.2  # Maximum 20% change per update
+        old_target = self.target
+        if self.target > old_target * (1 + max_change):
+            self.target = old_target * (1 + max_change)
+        elif self.target < old_target * (1 - max_change):
+            self.target = old_target * (1 - max_change)
+            
+        return self.target
     # def withdraw(self, amount):
     #     if amount < self.total_amount: # stop withdrawal if not enough stake
     #         health = self.buffer_health(self.buffer - amount)
@@ -111,16 +148,16 @@ class BufferSystem:
     #     else:
     #         return 0 # nothing was withdraw
 
-    def update_target(self):
-        avg_health = np.mean(self.health_history[-24:]) if len(self.health_history) >= 24 else np.mean(self.health_history)
-        if avg_health < 1:
-            self.target += self.target * (1 - avg_health)
-        elif avg_health > 1:
-            self.target /= avg_health
-        # Ensure target doesn't exceed total_amount
-        self.target = min(self.target, self.total_amount)
+    # def update_target(self):
+    #     avg_health = np.mean(self.health_history[-24:]) if len(self.health_history) >= 24 else np.mean(self.health_history)
+    #     if avg_health < 1:
+    #         self.target += self.target * (1 - avg_health)
+    #     elif avg_health > 1:
+    #         self.target /= avg_health
+    #     # Ensure target doesn't exceed total_amount
+    #     self.target = min(self.target, self.total_amount)
 
-        return self.target
+    #     return self.target
 
     def stake(self):
         if self.buffer > self.target:
