@@ -13,6 +13,8 @@ SIMULATION_DAYS = 10000
 DAILY_ACTIONS = 24  # Simulate hourly actions
 healthy_buffer = 0.8
 linear_health_function = 0
+BASE_TARGET_PERCENTAGE = 20  # New constant: base target as 20% of total
+
 
 class BufferSystem:
     def __init__(self, initial_buffer, initial_target, initial_stake, alpha):
@@ -96,13 +98,25 @@ class BufferSystem:
             return 0  # Return 0 if we don't have enough total funds
 
     def update_target(self):
-        # Get average health over last 24 periods (or all if less than 24)
-        lookback = min(24, len(self.health_history))
-        if lookback == 0:
-            return self.target
+        base_target = (self.total_amount * BASE_TARGET_PERCENTAGE) / 100
+        health = self.buffer_health(self.buffer)
+        
+        if health < 1:
+            increase = (base_target * (1 - health) * 150) / 100
+            self.target = base_target + increase
+        elif health > 1:
+            decrease = (base_target * (health - 1) * 50) / 100
+            if decrease < base_target:
+                self.target = base_target - decrease
+            else:
+                self.target = base_target / 2
+        else:
+            self.target = base_target
             
-        recent_health = self.health_history[-lookback:]
-        avg_health = np.mean(recent_health)
+        # Ensure target doesn't exceed total_amount
+        self.target = min(self.target, self.total_amount)
+        return self.target
+
         
         if avg_health < 1:
             # Buffer is consistently below target - increase target proportionally
