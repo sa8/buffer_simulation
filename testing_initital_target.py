@@ -12,6 +12,8 @@ DAILY_ACTIONS = 24  # Simulate hourly actions
 healthy_buffer = 0.8
 linear_health_function = 0
 normal_percentile = 0.5 # we want the buffer to keep within +/- 0.1 of the buffer
+BASE_TARGET_PERCENTAGE = 20  # New constant: base target as 20% of total
+
 
 class BufferSystem:
     def __init__(self, initial_buffer, initial_target, initial_stake, alpha):
@@ -89,12 +91,25 @@ class BufferSystem:
         return 0
 
     def update_target(self):
-        if self.buffer < self.target*(1-normal_percentile):
-            self.target = (self.target - self.buffer) / normal_percentile
-        elif self.buffer > self.target*(1+normal_percentile):
-            self.target = (self.buffer - self.target) / (1+normal_percentile)
+        base_target = (self.total_amount * BASE_TARGET_PERCENTAGE) / 100
+        health = self.buffer_health(self.buffer)
+        
+        if health < 1:
+            increase = (base_target * (1 - health) * 150) / 100
+            self.target = base_target + increase
+        elif health > 1:
+            decrease = (base_target * (health - 1) * 50) / 100
+            if decrease < base_target:
+                self.target = base_target - decrease
+            else:
+                self.target = base_target / 2
+        else:
+            self.target = base_target
+            
+        # Ensure target doesn't exceed total_amount
         self.target = min(self.target, self.total_amount)
         return self.target
+
 
     def stake(self):
         if self.buffer > self.target:
@@ -191,7 +206,7 @@ def analyze_target_range(target_range):
     return staking_efficiencies, withdrawal_efficiencies, avg_buffers, buffer_volatilities, total_stakes
 
 # Run analysis for different initial target values
-target_range = np.linspace(1, 50, 10)  # Test 10 different target values from 1 to 50
+target_range = np.linspace(10, 5000, 10)  # Test 10 different target values from 1 to 50
 results = analyze_target_range(target_range)
 staking_efficiencies, withdrawal_efficiencies, avg_buffers, buffer_volatilities, total_stakes = results
 
